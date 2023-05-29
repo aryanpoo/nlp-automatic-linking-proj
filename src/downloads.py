@@ -27,6 +27,7 @@ def resolve_doi(doi):
 
 
 def download_by_selenium(url, fn):
+    """(depreciated) Download a file (like a pdf file) using Selenium."""
     global browser
     if browser is None:
         options = webdriver.ChromeOptions()
@@ -48,9 +49,17 @@ def download_by_selenium(url, fn):
 
 
 def download_johd_paper(url, fn, method='selenium', force_download=False):
-    """ Download a paper from Journal of Open Humanities Data."""
-    fn += '.html'
-    if not force_download and path.exists(fn):
+    """ Download a paper from Journal of Open Humanities Data.
+    
+    Args:
+        url: Url of a johd article.
+        fn: Full file path without extensions.
+        method: Download method. Currently only 'selenium' method is supported.
+        force_download: Force re-downloading the file even it already exists.
+    """
+    content_fn = fn + '.html'
+    abstract_fn = fn + '.abstract.txt'
+    if not force_download and path.exists(content_fn) and path.exists(abstract_fn):
         print('File exists, ignored. (use force_download=True to re-download)')
         return
 
@@ -61,16 +70,24 @@ def download_johd_paper(url, fn, method='selenium', force_download=False):
         if browser is None:
             browser = webdriver.Chrome()
         browser.get(url)
-        code = """return function() {
+        get_article_js = """return function() {
             document.getElementsByClassName('article-references')[0].remove();
             return document.getElementById('xml-article').innerHTML;
+        }()"""
+        get_abstract_js = """return function() {
+            let abstractElement = document.querySelector('div[data-testid="abstract"]');
+            return abstractElement.querySelector('p').textContent;
         }()"""
         for i in range(100):
             browser.execute_script("window.scrollBy(0,250)")
         time.sleep(2.5)
-        html = browser.execute_script(code)
-        with open(fn, 'w', encoding='utf-8') as f:
-            f.write(html)
+        abstract = browser.execute_script(get_abstract_js)
+        content = browser.execute_script(get_article_js)
+        
+        with open(content_fn, 'w', encoding='utf-8') as f:
+            f.write(content)
+        with open(abstract_fn, 'w', encoding='utf-8') as f:
+            f.write(abstract)
     else:
         raise NotImplementedError()
 
@@ -143,11 +160,11 @@ def download_paper(doi, url, dest_dir, force_download=False):
 
 
 def get_fn_of_doi(doi, dest_dir, ext='', already_exists=False):
-    """ Get filename and path from a doi.
+    """ Get filename and path from a DOI.
 
     Args:
-        ext: file extension with the leading dot (such as '.html')
-        already_exists: if true, assumes the file exists and finds the extension based on the saved file
+        ext: File extension with the leading dot (such as '.html').
+        already_exists: A Boolean flag that if true, assumes the file exists and finds the extension based on the saved file.
     """
     assert not(ext != '' and already_exists)  
     if '://' in doi:
@@ -161,6 +178,7 @@ def get_fn_of_doi(doi, dest_dir, ext='', already_exists=False):
         return fn
     else:
         a = list(glob(f'{fn}*'))
+        a = [x for x in a if '.abstract.' not in x]
         return a[0] if len(a) > 0 else None
 
 
@@ -178,7 +196,7 @@ DATASET_RAW_URL = 'https://raw.githubusercontent.com/npedrazzini/DataPapersAnaly
 def make_doi_url_dataset(force_download=False):
     """Add resolved doi urls to the raw project dataset.
     
-    The dataset is at at https://raw.githubusercontent.com/npedrazzini/DataPapersAnalysis/main/curated_inputs/research_datapapers-links-johd.csv
+    The dataset is at https://raw.githubusercontent.com/npedrazzini/DataPapersAnalysis/main/curated_inputs/research_datapapers-links-johd.csv
     """
     
     if not force_download and path.exists(DATASET_FN):
@@ -248,7 +266,7 @@ if __name__ == '__main__':
         print(f'\n{index+1}/{len(df)} {doi} ', end='')
         download_paper(doi, row['research_paper_url'], RESEARCH_PAPERS_DIR)
 
-    # Add address of files to df
+    # Add (or update) df with file paths
     for row_i, row in df.iterrows():
         doi = row['data_paper_doi']
         data_paper_fn = get_fn_of_doi(doi, DATA_PAPERS_DIR, already_exists=True)
