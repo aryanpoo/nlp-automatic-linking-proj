@@ -282,10 +282,12 @@ def ners_side_by_side():
                 rp_fn = path.abspath(get_fn_of_doi(rp_doi, RESEARCH_PAPERS_DIR, already_exists=True))
                 ws.cell(2,col+1).hyperlink = pathlib.Path(rp_fn).as_uri()
                 for i, ne in enumerate(dp_nes):
-                    ne = ''.join(filter(lambda x: x in string.printable, ne))
+                    ne = ''.join(filter(lambda x: x in string.printable, ne)).replace('\x0b', '')
+                    if ne[0] == '=': ne = ne[1:]
                     ws.cell(i+3,col).value = ne
                 for i, ne in enumerate(rp_nes):
-                    ne = ''.join(filter(lambda x: x in string.printable, ne))
+                    ne = ''.join(filter(lambda x: x in string.printable, ne)).replace('\x0b', '')
+                    if ne[0] == '=': ne = ne[1:]
                     ws.cell(i+3,col+1).value = ne
                 row_nums.append(max(len(dp_nes), len(rp_nes)))
                 col += 2
@@ -306,5 +308,5 @@ def ners_side_by_side():
     wb.save(wb_fn)
 
 
-ner_method_all_combinations_with_cross_validation()
-# ners_side_by_side()
+# ner_method_all_combinations_with_cross_validation()
+ners_side_by_side()
