@@ -1,4 +1,5 @@
 from os import path
+import shutil
 import time
 import json
 from glob import glob
@@ -11,7 +12,19 @@ import requests
 import pandas as pd
 from selenium import webdriver
 
+
 browser = None
+
+BASE_DATA_DIR = 'data'
+DATA_PAPERS_DIR = path.join(BASE_DATA_DIR, 'data_papers')
+RESEARCH_PAPERS_DIR = path.join(BASE_DATA_DIR, 'research_papers')
+Path(DATA_PAPERS_DIR).mkdir(parents=True, exist_ok=True)
+Path(RESEARCH_PAPERS_DIR).mkdir(parents=True, exist_ok=True)
+DATASET_FN = path.join(BASE_DATA_DIR, 'links.csv')
+STARTING_JOHD_DATASET_RAW_FN = path.join(BASE_DATA_DIR, 'research_datapapers-links-johd.csv')
+STARTING_JOHD_DATASET_RAW_URL = 'https://raw.githubusercontent.com/npedrazzini/DataPapersAnalysis/main/curated_inputs/research_datapapers-links-johd.csv'.replace('\n', '')
+JD_RAW_DIR = path.join(BASE_DATA_DIR, 'jd')
+
 
 def resolve_doi(doi):
     """ Resolve a DOI to the corresponding URL.
@@ -177,23 +190,12 @@ def get_fn_of_doi(doi, dest_dir, ext='', already_exists=False):
     if not already_exists:
         return fn
     else:
-        a = list(glob(f'{fn}*'))
+        a = list(glob(f'{fn}.*'))
         a = [x for x in a if '.abstract.' not in x]
+        assert len(a) <= 2 # at most one pdf and one non-pdf files should exist for a file (according to the rest of the codes)
         return a[0] if len(a) > 0 else None
 
-
-
-
-BASE_DATA_DIR = 'data'
-DATA_PAPERS_DIR = path.join(BASE_DATA_DIR, 'data_papers')
-RESEARCH_PAPERS_DIR = path.join(BASE_DATA_DIR, 'research_papers')
-Path(DATA_PAPERS_DIR).mkdir(parents=True, exist_ok=True)
-Path(RESEARCH_PAPERS_DIR).mkdir(parents=True, exist_ok=True)
-DATASET_FN = path.join(BASE_DATA_DIR, 'research_datapapers-links-johd-processed.csv')
-DATASET_RAW_FN = path.join(BASE_DATA_DIR, 'research_datapapers-links-johd.csv')
-DATASET_RAW_URL = 'https://raw.githubusercontent.com/npedrazzini/DataPapersAnalysis/main/curated_inputs/research_datapapers-links-johd.csv'.replace('\n', '')
-
-def make_doi_url_dataset(force_download=False):
+def add_doiurls_to_starting_johd_dataset(force_download=False):
     """Add resolved doi urls to the raw project dataset.
     
     The dataset is at https://raw.githubusercontent.com/npedrazzini/DataPapersAnalysis/main/curated_inputs/research_datapapers-links-johd.csv
@@ -202,8 +204,8 @@ def make_doi_url_dataset(force_download=False):
     if not force_download and path.exists(DATASET_FN):
         return
 
-    urllib.request.urlretrieve(DATASET_RAW_URL, DATASET_RAW_FN)
-    df = pd.read_csv(DATASET_RAW_FN)
+    urllib.request.urlretrieve(STARTING_JOHD_DATASET_RAW_URL, STARTING_JOHD_DATASET_RAW_FN)
+    df = pd.read_csv(STARTING_JOHD_DATASET_RAW_FN)
     df = df.rename(columns={'DOI_data_paper': 'data_paper_doi',
                             'DOI': 'research_paper_doi'})
     # Uncomment for a quick test
@@ -239,8 +241,8 @@ def make_doi_url_dataset(force_download=False):
     df.to_csv(DATASET_FN)
 
 
-if __name__ == '__main__':
-    make_doi_url_dataset()
+def make_starting_johd_dataset_and_download_files():
+    add_doiurls_to_starting_johd_dataset()
     df = pd.read_csv(DATASET_FN, index_col=0)
    
     print('Downloading papers ...')
@@ -266,14 +268,39 @@ if __name__ == '__main__':
         print(f'\n{index+1}/{len(df)} {doi} ', end='')
         download_paper(doi, row['research_paper_url'], RESEARCH_PAPERS_DIR)
 
-    # Add (or update) df with file paths
+    df.to_csv(DATASET_FN)
+
+
+def add_jd_files_to_dataset():
+    jd_df_raw = pd.read_csv(path.join(JD_RAW_DIR, 'links - Sheet1.csv'))
+    rows = []
+    for index, row in jd_df_raw.iterrows():
+        id, dp_doi, rp_doi = row['id'], row['DOI_data_paper'], row['DOI_research']
+        dp_fn = get_fn_of_doi(dp_doi, DATA_PAPERS_DIR, ext='.pdf')
+        rp_fn = get_fn_of_doi(rp_doi, RESEARCH_PAPERS_DIR, ext='.pdf')
+        shutil.copyfile(path.join(JD_RAW_DIR, 'pdfs', f'{id}d.pdf'), dp_fn)
+        shutil.copyfile(path.join(JD_RAW_DIR, 'pdfs', f'{id}r.pdf'), rp_fn)
+        rows.append([dp_doi, rp_doi, '', '', '', '', '', ''])
+
+    df = pd.read_csv(DATASET_FN, index_col=0)
+    df['source'] = 'original-johd'
+    jd_df = pd.DataFrame(rows, columns=df.columns)
+    jd_df['source'] = 'jd'
+    df = pd.concat([df, jd_df], ignore_index=True)
+    df.to_csv(DATASET_FN)
+
+def update_has_file_col():
+    df = pd.read_csv(DATASET_FN, index_col=0)
     for row_i, row in df.iterrows():
         doi = row['data_paper_doi']
         data_paper_fn = get_fn_of_doi(doi, DATA_PAPERS_DIR, already_exists=True)
-        df.loc[row_i, 'data_paper_fn'] = data_paper_fn
+        df.loc[row_i, 'data_paper_has_file'] = data_paper_fn is not None
         
         doi = row['research_paper_doi']
         research_paper_fn = get_fn_of_doi(doi, RESEARCH_PAPERS_DIR, already_exists=True)
-        df.loc[row_i, 'research_paper_fn'] = research_paper_fn
-    
+        df.loc[row_i, 'research_paper_has_file'] = research_paper_fn is not None
+
     df.to_csv(DATASET_FN)
+
+# add_jd_files_to_dataset()
+update_has_file_col()
